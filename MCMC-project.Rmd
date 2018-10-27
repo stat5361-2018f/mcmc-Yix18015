@@ -1,0 +1,88 @@
+---
+title: "MCMC Project"
+author: "Yiyi Xu"
+date: "10/25/2018"
+output: html_document
+---
+
+Given $\mu_1$, $\mu_2$, $\delta$, $\sigma_1$,$\sigma_2$, the distribution of the normal mixture is following: 
+$$f(x)=\delta N(\mu_1,\sigma_1^2)+(1-\delta)N(\mu_2,\sigma_2^2)$$
+use $\mu_1=7$, $\mu_2=10$, $\delta=0.7$, $\sigma_1=0.5$,$\sigma_2=0.5$ to get sample. 
+```{r}
+delta <- 0.7 # true value to be estimated based on the data
+n <- 100
+set.seed(123)
+u <- rbinom(n, prob = delta, size = 1)
+sample <- rnorm(n, ifelse(u == 1, 7, 10), 0.5)
+
+```
+Define Loglikehood function:
+$$L(\mu_1, \mu_2, \delta, \sigma_1,\sigma_2;x)=\prod_{i=1}^n[\delta\frac{1}{\sqrt{2\pi}\sigma_1}e^{-\frac{(x_i-\mu_1)^2}{2\sigma_1^2}}+(1-\delta)\frac{1}{\sqrt{2\pi}\sigma_2}e^{-\frac{(x_i-\mu_2)^2}{2\sigma_2^2}} ]$$
+$$l(\mu_1, \mu_2, \delta, \sigma_1,\sigma_2;x)=logL(\mu_1, \mu_2, \delta, \sigma_1,\sigma_2;x)= \sum_{i=1}^n \log[\delta\frac{1}{\sqrt{2\pi}\sigma_1}e^{-\frac{(x_i-\mu_1)^2}{2\sigma_1^2}}+(1-\delta)\frac{1}{\sqrt{2\pi}\sigma_2}e^{-\frac{(x_i-\mu_2)^2}{2\sigma_2^2}} ]$$
+```
+Define prior function:
+as prior for $\mu_1$ and $\mu_2$ are $N(0,10^2)$, prior for $\sigma_1$,$\sigma_2$ are $IG(0.5,10)$, the prior function is following: 
+$$\pi(\mu_1)=\frac{1}{\sqrt{2\pi}10}e^{-\frac{(\mu_1)^2}{2*10^2}} $$
+$$\pi(\mu_2)=\frac{1}{\sqrt{2\pi}10}e^{-\frac{(\mu_2)^2}{2*10^2}}$$ 
+$$\pi(\sigma_1^2)=\frac{10^{0.5}}{\Gamma(0.5)}(\sigma_1^2)^{-0.5-1}e^{-\frac{10}{\sigma_1^2}}$$ 
+$$\pi(\sigma_2^2)=\frac{10^{0.5}}{\Gamma(0.5)}(\sigma_2^2)^{-0.5-1}e^{-\frac{10}{\sigma_2^2}} $$
+Define log posterior function
+
+$$\pi(\mu_1, \mu_2, \delta, \sigma_1^2,\sigma_2^2;x) \propto L(\mu_1, \mu_2, \delta, \sigma_1^2,\sigma_2^2;x)\pi(\mu_1, \mu_2, \sigma_1^2,\sigma_2^2)$$
+$$\log\pi(\mu_1, \mu_2, \delta, \sigma_1^2,\sigma_2^2;x)= \log L + \log\pi(\mu_1)+\log\pi(\mu_2)+\log\pi(\sigma_1^2)+\log\pi(\sigma_2^2)$$
+```{r}
+library("invgamma")
+log.pos <-function(u1,u2,s1,s2,d,x=sample){
+p1<-d*dnorm(x,u1,sqrt(s1))
+p2<-(1-d)*dnorm(x,u2,sqrt(s2))
+ logL <- sum(log(p1+p2))
+ prior.u1 <- dnorm(u1,0,10)
+ prior.u2 <- dnorm(u2,0,10)
+ prior.s1 <- dinvgamma(s1,0.5,10)
+ prior.s2 <- dinvgamma(s2,0.5,10)
+ sum(logL+log(prior.u1)+log(prior.u2)+log(prior.s1)+log(prior.s2))
+}
+
+```
+
+
+
+```{r}
+library("HI")
+gibb_fun <- function(d_,u1_,u2_,s1_,s2_,x=sample,n){
+  gibb<- matrix(nrow=n, ncol=5)
+  ini <- c(d_,u1_,u2_,s1_,s2_)
+  for(i in 1:n ){
+     gibb[i,1] <- arms(d_,log.pos,function(x,...)(x>0)*(x<1),1,u1=ini[2],u2=ini[3],s1=ini[4],s2=ini[5])
+     ini[1] <-gibb[i,1]
+     
+     gibb[i,2] <- arms(u1_,log.pos,function(x,...)(x>-50)*(x<50),1,d=ini[1],u2=ini[3],s1=ini[4],s2=ini[5])
+     ini[2] <-gibb[i,2]
+     
+     gibb[i,3] <- arms(u2_,log.pos,function(x,...)(x>-50)*(x<50),1,d=ini[1],u1=ini[2],s1=ini[4],s2=ini[5])
+     ini[3] <-gibb[i,3]
+     
+     gibb[i,4] <- arms(s1_,log.pos,function(x,...)(x>0)*(x<50),1,d=ini[1],u1=ini[2],u2=ini[3],s2=ini[5])
+     ini[4] <-gibb[i,4]
+     
+     gibb[i,5] <- arms(s2_,log.pos,function(x,...)(x>0)*(x<50),1,d=ini[1],u1=ini[2],u2=ini[3],s1=ini[4])
+     ini[5] <-gibb[i,5]
+  }
+     gibb
+}
+
+gibb.result<-gibb_fun(0.5,5,5,1,1,sample,3000)[-(1:1500),]
+hist(gibb.result[,1],main="Histogram of delta",xlab="delta")
+hist(gibb.result[,2],main="Histogram of mu1",xlab="mu1")
+hist(gibb.result[,3],main="Histogram of mu2",xlab="mu2")
+hist(gibb.result[,4],main="Histogram of sigma1",xlab="sigma1")
+hist(gibb.result[,5],main="Histogram of sigma2",xlab="sigma2")
+
+
+```
+
+
+
+
+
+
